@@ -63,3 +63,4 @@ npm run build
 - [ ] Update [`src/nostr/store/MessageStore`](./src/nostr/store/MessageStore.js) logic, to parse incognito DMs properly, and store them as a regular DM (with some metadata so we know it's a incognito DM and can show a little lock symbol, and do further relational work like tying together reactions etc.) (TODOs left in the file)
     * The private DMs which are incognito should include metadata which makes it easy to identify them as incognito, and access additional data from the HD derivation data set, in order to do things like: show the disposable identities, show the count of disposable identities, display a "lock" icon, etc
 - [ ] Implement logic for creating invitation messages
+- [ ] Refactor the UI so it's just a DM inbox
