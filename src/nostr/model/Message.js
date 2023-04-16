@@ -4,10 +4,10 @@ export default class Message {
   constructor(id, args) {
     this.id = id
     this.author = args.author || args.pubkey
+    this.recipient = args.recipient
     this.createdAt = args.createdAt
     this.content = args.content || ''
     this.tags = args.tags
-    this.recipients = args.recipients
     this.ancestor = args.ancestor
     this.plaintext = args.plaintext
   }
@@ -23,13 +23,9 @@ export default class Message {
       createdAt: event.createdAt,
       content: event.content,
       tags: event.tags,
-      recipients,
+      recipient: recipients[0],
       ancestor,
     })
-  }
-
-  get recipient() {
-    return this.recipients[0]
   }
 
   cachePlaintext(plaintext) {
