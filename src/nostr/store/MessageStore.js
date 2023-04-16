@@ -1,53 +1,40 @@
 import {defineStore} from 'pinia'
 import Message from 'src/nostr/model/Message'
-import {NoteOrder} from 'src/nostr/store/NoteStore'
+import Conversation from 'src/nostr/model/Conversation'
 import DateUtils from 'src/utils/DateUtils'
 
 export const useMessageStore = defineStore('message', {
   state: () => ({
     messages: {}, // id -> message
-    byRecipient: {}, // recipient -> sender -> [messages]
-    bySender: {}, // sender -> recipient -> [messages]
+    conversationsArray: [], // [conversation]
+    conversationsMap: {}, // self -> counterparty -> conversation
   }),
   getters: {
+    // TODO: update logic to fetch incognito conversations
     getConversations(state) {
       return pubkey => {
         const conversations = []
-        for (const counterparty of this.getCounterparties(pubkey)) {
-          const messages = this.getMessages(pubkey, counterparty)
-          const latestMessage = messages.reduce((a, b) => a.createdAt > b.createdAt ? a : b, {createdAt: 0})
+        for (const conv of this.conversationsArray) {
+          const pubkeyIndex = conv.parties.indexOf(pubkey)
+          if (pubkeyIndex === -1) {
+            continue
+          }
+
+          const counterparty = conv.parties[1 - pubkeyIndex]
           const lastRead = useMessageStatusStore().getLastRead(pubkey, counterparty)
-          const numUnread = messages.filter(msg => msg.createdAt > lastRead && msg.author === counterparty).length
+          const numUnread = conv.messages.filter(msg => msg.createdAt > lastRead && msg.author === counterparty).length
           conversations.push({
             pubkey: counterparty,
-            latestMessage,
-            numUnread,
+            latestMessage: conv.latestMessage,
+            numUnread
           })
         }
         conversations.sort((a, b) => b.latestMessage?.createdAt - a.latestMessage?.createdAt)
         return conversations
       }
     },
-    getConversation() {
-      // TODO Take e-tags into account for sorting
-      return (pubkey, counterparty) => this
-        .getMessages(pubkey, counterparty)
-        .sort(NoteOrder.CREATION_DATE_ASC)
-    },
-    getMessages(state) {
-      return (pubkey, counterparty) => (state.byRecipient[pubkey]?.[counterparty] || [])
-        .concat(pubkey !== counterparty
-          ? state.bySender[pubkey]?.[counterparty] || []
-          : []
-        )
-    },
-    getCounterparties(state) {
-      return pubkey => {
-        const counterparties = new Set()
-        Object.keys(state.byRecipient[pubkey] || {}).forEach(pubkey => counterparties.add(pubkey))
-        Object.keys(state.bySender[pubkey] || {}).forEach(pubkey => counterparties.add(pubkey))
-        return Array.from(counterparties)
-      }
+    getConversation(state) {
+      return (pubkey, counterparty) => state.conversationsMap[pubkey]?.[counterparty]?.messages || []
     },
     getNumUnread() {
       // TODO improve performance
@@ -62,27 +49,23 @@ export const useMessageStore = defineStore('message', {
       if (this.messages[message.id]) return this.messages[message.id]
       this.messages[message.id] = message
 
-      if (!this.bySender[message.author]) {
-        this.bySender[message.author] = {}
+      if (!this.conversationsMap[message.author]) {
+        this.conversationsMap[message.author] = {}
       }
-      const byRecipient = this.bySender[message.author]
-
-      for (const recipient of message.recipients) {
-        if (!byRecipient[recipient]) {
-          byRecipient[recipient] = []
-        }
-        byRecipient[recipient].push(message)
-
-        if (!this.byRecipient[recipient]) {
-          this.byRecipient[recipient] = {}
-        }
-        const bySender = this.byRecipient[recipient]
-        if (!bySender[message.author]) {
-          bySender[message.author] = []
-        }
-        bySender[message.author].push(message)
+      if (!this.conversationsMap[message.recipient]) {
+        this.conversationsMap[message.recipient] = {}
       }
+      const byAuthor = this.conversationsMap[message.author]
+      const byRecipient = this.conversationsMap[message.recipient]
 
+      let conversation = byAuthor[message.recipient]
+      if (!conversation) {
+        conversation = new Conversation([message.author, message.recipient])
+        byAuthor[message.recipient] = conversation
+        byRecipient[message.author] = conversation
+        this.conversationsArray.push(conversation)
+      }
+      conversation.messages = conversation.addMessage(message)
       return message
     },
     markAsRead(pubkey, counterparty) {
@@ -90,7 +73,7 @@ export const useMessageStore = defineStore('message', {
     },
     markAllAsRead(pubkey) {
       const store = useMessageStatusStore()
-      for (const counterparty of this.getCounterparties(pubkey)) {
+      for (const counterparty in (this.conversationsMap[pubkey] || {})) {
         store.markAsRead(pubkey, counterparty)
       }
     },
